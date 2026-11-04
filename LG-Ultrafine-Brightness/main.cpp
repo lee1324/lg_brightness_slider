@@ -325,13 +325,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         return 1;
     }
 
-    WNDCLASSA wc = {};
+    WNDCLASSEXA wc = {};
+    wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = "LGUltrafineBrightnessWnd";
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    RegisterClassA(&wc);
+    wc.hIcon = (HICON)LoadImageA(
+        hInstance, MAKEINTRESOURCEA(1), IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
+    wc.hIconSm = (HICON)LoadImageA(
+        hInstance, MAKEINTRESOURCEA(1), IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+    RegisterClassExA(&wc);
 
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME;
     RECT window_rect = {0, 0, 400, 120};
