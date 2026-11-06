@@ -10,6 +10,8 @@
 const uint16_t max_brightness = 0xd2f0;
 const uint16_t min_brightness = 0x0190;
 const int slider_max = 100;
+const char *window_class_name = "LGUltrafineBrightnessWnd";
+const char *instance_mutex_name = "Local\\LGUltrafineBrightness";
 
 static hid_device *g_handle = nullptr;
 static HWND g_hint = nullptr;
@@ -316,12 +318,65 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcA(hwnd, msg, wParam, lParam);
 }
 
+void activate_existing_instance() {
+    HWND existing = FindWindowA(window_class_name, nullptr);
+    if (!existing) {
+        return;
+    }
+    if (IsIconic(existing)) {
+        ShowWindow(existing, SW_RESTORE);
+    }
+
+    DWORD current_thread = GetCurrentThreadId();
+    DWORD target_thread = GetWindowThreadProcessId(existing, nullptr);
+    HWND foreground = GetForegroundWindow();
+    DWORD foreground_thread = foreground ? GetWindowThreadProcessId(foreground, nullptr) : 0;
+
+    if (foreground_thread && foreground_thread != current_thread) {
+        AttachThreadInput(current_thread, foreground_thread, TRUE);
+    }
+    if (target_thread && target_thread != current_thread) {
+        AttachThreadInput(current_thread, target_thread, TRUE);
+    }
+
+    BringWindowToTop(existing);
+    if (!SetForegroundWindow(existing)) {
+        FLASHWINFO flash = {};
+        flash.cbSize = sizeof(flash);
+        flash.hwnd = existing;
+        flash.dwFlags = FLASHW_TRAY | FLASHW_TIMERNOFG;
+        flash.uCount = 4;
+        FlashWindowEx(&flash);
+    }
+
+    if (target_thread && target_thread != current_thread) {
+        AttachThreadInput(current_thread, target_thread, FALSE);
+    }
+    if (foreground_thread && foreground_thread != current_thread) {
+        AttachThreadInput(current_thread, foreground_thread, FALSE);
+    }
+}
+
+void release_instance(HANDLE mutex) {
+    if (mutex) {
+        CloseHandle(mutex);
+    }
+}
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
+    HANDLE instance_mutex = CreateMutexA(nullptr, FALSE, instance_mutex_name);
+    if (instance_mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+        activate_existing_instance();
+        release_instance(instance_mutex);
+        return 0;
+    }
+
     INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_BAR_CLASSES };
     InitCommonControlsEx(&icc);
 
     if (!open_monitor()) {
         hid_exit();
+        release_instance(instance_mutex);
         return 1;
     }
 
@@ -329,7 +384,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
-    wc.lpszClassName = "LGUltrafineBrightnessWnd";
+    wc.lpszClassName = window_class_name;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.hIcon = (HICON)LoadImageA(
@@ -358,6 +413,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         MessageBoxA(nullptr, "Failed to create window.", "LG Ultrafine Brightness", MB_ICONERROR);
         hid_close(g_handle);
         hid_exit();
+        release_instance(instance_mutex);
         return 1;
     }
 
@@ -369,5 +425,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
-    return static_cast<int>(msg.wParam);
+    int code = static_cast<int>(msg.wParam);
+    release_instance(instance_mutex);
+    return code;
 }
